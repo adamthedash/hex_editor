@@ -1,0 +1,10 @@
+[package]
+name = "hex_editor"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chumsky = "0.10.1"
+colored = "3.0.0"
+logos = "0.15.0"
+rand = "0.9.1"
