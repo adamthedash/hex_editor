@@ -12,10 +12,6 @@ mod parser;
 
 fn main() {
     let file = fs::read_to_string("./data/patterns/png.pattern").unwrap();
-    // let file = fs::read_to_string("./data/patterns/empty_take_until.pattern").unwrap();
-    // let file = fs::read_to_string("./data/patterns/nested_take_untils.pattern").unwrap();
-    // let file = fs::read_to_string("./data/patterns/shallow_mixed.pattern").unwrap();
-    // let file = fs::read_to_string("./data/patterns/many_primative.pattern").unwrap();
 
     let lex = lexer::Token::lexer(&file);
     let tokens = lex.collect::<Result<Vec<_>, _>>().unwrap();
@@ -29,9 +25,7 @@ fn main() {
         .expect("Failed to parse");
     println!("{:#?}", pattern);
 
-    let png_bytes =
-        fs::read("/home/adam/Pictures/Screenshots/Screenshot from 2025-05-24 22-53-30.png")
-            .unwrap();
+    let png_bytes = fs::read("./data/binary_files/image.png").unwrap();
 
     let mut png_iter = png_bytes.into_iter().peekable();
 

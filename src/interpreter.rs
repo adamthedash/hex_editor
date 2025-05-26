@@ -9,6 +9,7 @@ pub enum PrimativeArray {
     U32(Vec<u32>),
     U64(Vec<u64>),
     U128(Vec<u128>),
+    Char(Vec<u8>),
 }
 
 #[derive(Debug, Clone)]
@@ -18,38 +19,38 @@ pub enum Data {
 }
 
 impl PrimativeArray {
-    fn from_chunked_array(chunks: &[&[u8]], bytes_per_data: usize) -> Self {
+    fn from_chunked_array(chunks: &[&[u8]], dtype: &DType) -> Self {
         use PrimativeArray::*;
-        match bytes_per_data {
-            1 => U8(chunks
+        match dtype {
+            DType::U8 => U8(chunks
                 .iter()
                 .map(|x| {
                     assert_eq!(x.len(), 1);
                     x[0]
                 })
                 .collect()),
-            2 => U16(chunks
+            DType::U16 => U16(chunks
                 .iter()
                 .map(|&x| {
                     assert_eq!(x.len(), 2);
                     u16::from_be_bytes(x.try_into().unwrap())
                 })
                 .collect()),
-            4 => U32(chunks
+            DType::U32 => U32(chunks
                 .iter()
                 .map(|&x| {
                     assert_eq!(x.len(), 4);
                     u32::from_be_bytes(x.try_into().unwrap())
                 })
                 .collect()),
-            8 => U64(chunks
+            DType::U64 => U64(chunks
                 .iter()
                 .map(|&x| {
                     assert_eq!(x.len(), 8);
                     u64::from_be_bytes(x.try_into().unwrap())
                 })
                 .collect()),
-            16 => U128(
+            DType::U128 => U128(
                 chunks
                     .iter()
                     .map(|&x| {
@@ -58,7 +59,15 @@ impl PrimativeArray {
                     })
                     .collect(),
             ),
-            l => panic!("Invalid number of bytes for primative: {}", l),
+            DType::Char => Char(
+                chunks
+                    .iter()
+                    .map(|x| {
+                        assert_eq!(x.len(), 1);
+                        x[0]
+                    })
+                    .collect(),
+            ),
         }
     }
 }
@@ -87,6 +96,7 @@ pub fn process_bytes(pattern: &[Expr], bytes: &mut Peekable<impl Iterator<Item =
                             PrimativeArray::U32(items) => items[0] as usize,
                             PrimativeArray::U64(items) => items[0] as usize,
                             PrimativeArray::U128(items) => panic!("Cannot downcast u128 -> usize"),
+                            _ => panic!("Cannot use dtype as count: {:?}", val),
                         }
                     }
                 };
@@ -97,6 +107,7 @@ pub fn process_bytes(pattern: &[Expr], bytes: &mut Peekable<impl Iterator<Item =
                     DType::U32 => 4,
                     DType::U64 => 8,
                     DType::U128 => 16,
+                    DType::Char => 1,
                 };
                 // println!(
                 //     "{:?}, {:?}, {}x{}",
@@ -110,7 +121,7 @@ pub fn process_bytes(pattern: &[Expr], bytes: &mut Peekable<impl Iterator<Item =
                     .map(|_| bytes.next().expect("Ran out of bytes!"))
                     .collect::<Vec<_>>();
                 let data = data.chunks_exact(bytes_per_data).collect::<Vec<_>>();
-                let primative = PrimativeArray::from_chunked_array(&data, bytes_per_data);
+                let primative = PrimativeArray::from_chunked_array(&data, dtype);
 
                 if let Some(id) = identifier {
                     variables.entry(id.clone()).insert_entry(primative.clone());

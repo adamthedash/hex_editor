@@ -1,7 +1,7 @@
-u8 8 _
+char 8 _
 TAKE_UNTIL {
   u32 1 n
-  u32 1 _
+  char 4 _
   u8 n _
   u32 1 _
 }

@@ -12,6 +12,7 @@ pub enum DType {
     U32,
     U64,
     U128,
+    Char,
 }
 
 #[derive(Debug, Clone)]
@@ -38,6 +39,7 @@ pub fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr> {
             "u32" => DType::U32,
             "u64" => DType::U64,
             "u128" => DType::U128,
+            "char" => DType::Char,
             _ => panic!("Invalid dtype")
         }
     };

@@ -17,9 +17,10 @@ pub fn print_data(data: &Data, stack_colors: &[(u8, u8, u8)]) {
             }
 
             let string = match primative_array {
-                PrimativeArray::U8(items) => {
-                    items.iter().map(|x| format!("{x} ")).collect::<Vec<_>>()
-                }
+                PrimativeArray::U8(items) => items
+                    .iter()
+                    .map(|x| format!("{x:0>2x} "))
+                    .collect::<Vec<_>>(),
                 PrimativeArray::U16(items) => {
                     items.iter().map(|x| format!("{x} ")).collect::<Vec<_>>()
                 }
@@ -32,6 +33,10 @@ pub fn print_data(data: &Data, stack_colors: &[(u8, u8, u8)]) {
                 PrimativeArray::U128(items) => {
                     items.iter().map(|x| format!("{x} ")).collect::<Vec<_>>()
                 }
+                PrimativeArray::Char(items) => items
+                    .iter()
+                    .map(|x| format!("{} ", std::ascii::escape_default(*x)))
+                    .collect::<Vec<_>>(),
             };
             for s in string {
                 print!("{}", s);
