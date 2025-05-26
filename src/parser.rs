@@ -29,6 +29,10 @@ pub enum Expr {
         identifier: Option<String>,
     },
     TakeUntil(Vec<Expr>),
+    TakeN {
+        count: Count,
+        exprs: Vec<Expr>,
+    },
 }
 
 pub fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr> {
@@ -64,12 +68,22 @@ pub fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr> {
 
     recursive(|expr| {
         let take_until = just(Token::TakeUntil).ignore_then(
-            expr.repeated()
+            expr.clone()
+                .repeated()
                 .collect()
                 .delimited_by(just(Token::LeftBrace), just(Token::RightBrace))
                 .map(Expr::TakeUntil),
         );
 
-        primative.or(take_until)
+        let take_n = just(Token::TakeN)
+            .ignore_then(count)
+            .then(
+                expr.repeated()
+                    .collect()
+                    .delimited_by(just(Token::LeftBrace), just(Token::RightBrace)),
+            )
+            .map(|(count, exprs)| Expr::TakeN { count, exprs });
+
+        primative.or(take_until).or(take_n)
     })
 }

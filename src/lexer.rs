@@ -21,6 +21,9 @@ pub enum Token {
     #[token("TAKE_UNTIL")]
     TakeUntil,
 
+    #[token("TAKE_N")]
+    TakeN,
+
     #[regex("(u(8|16|32|64|128)|char)", |x| x.slice().to_string())]
     DType(String),
 }

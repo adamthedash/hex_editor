@@ -137,6 +137,32 @@ pub fn process_bytes(pattern: &[Expr], bytes: &mut Peekable<impl Iterator<Item =
 
                 parsed.push(Data::List(sub_parsed));
             }
+            Expr::TakeN { count, exprs } => {
+                let count = match count {
+                    Count::Number(n) => *n as usize,
+                    Count::Identifier(id) => {
+                        let val = variables
+                            .get(id)
+                            .unwrap_or_else(|| panic!("Variable not found: {}", id));
+
+                        match val {
+                            PrimativeArray::U8(items) => items[0] as usize,
+                            PrimativeArray::U16(items) => items[0] as usize,
+                            PrimativeArray::U32(items) => items[0] as usize,
+                            PrimativeArray::U64(items) => items[0] as usize,
+                            PrimativeArray::U128(items) => panic!("Cannot downcast u128 -> usize"),
+                            _ => panic!("Cannot use dtype as count: {:?}", val),
+                        }
+                    }
+                };
+
+                let mut sub_parsed = vec![];
+                for _ in 0..count {
+                    sub_parsed.push(process_bytes(exprs, bytes));
+                }
+
+                parsed.push(Data::List(sub_parsed));
+            }
         }
     }
 

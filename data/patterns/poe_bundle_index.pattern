@@ -1,0 +1,23 @@
+u32 1 num_bundles
+TAKE_N num_bundles {
+  u32 1 name_len
+  char name_len _
+  u32 1 _
+}
+u32 1 file_count
+TAKE_N file_count {
+  u64 1 _
+  u32 1 _
+  u32 1 _
+  u32 1 _
+}
+u32 1 path_chunk_count
+TAKE_N path_chunk_count {
+  u64 1 _
+  u32 1 _
+  u32 1 _
+  u32 1 _
+}
+TAKE_UNTIL {
+  u8 1 _
+}
