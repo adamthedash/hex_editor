@@ -1,17 +1,25 @@
 use crate::lexer::Token;
 use chumsky::{
     IterParser, Parser,
+    error::Rich,
+    extra,
     prelude::{just, recursive},
     select,
 };
 
 #[derive(Clone, Debug)]
+pub enum Endianness {
+    Big,
+    Little,
+}
+
+#[derive(Clone, Debug)]
 pub enum DType {
     U8,
-    U16,
-    U32,
-    U64,
-    U128,
+    U16(Endianness),
+    U32(Endianness),
+    U64(Endianness),
+    U128(Endianness),
     Char,
 }
 
@@ -35,18 +43,23 @@ pub enum Expr {
     },
 }
 
-pub fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr> {
+pub fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, Token>>> {
     let dtype = select! {
         Token::DType(x) => match x.as_str() {
             "u8" => DType::U8,
-            "u16" => DType::U16,
-            "u32" => DType::U32,
-            "u64" => DType::U64,
-            "u128" => DType::U128,
+            "u16le" => DType::U16(Endianness::Little),
+            "u32le" => DType::U32(Endianness::Little),
+            "u64le" => DType::U64(Endianness::Little),
+            "u128le" => DType::U128(Endianness::Little),
+            "u16be" => DType::U16(Endianness::Big),
+            "u32be" => DType::U32(Endianness::Big),
+            "u64be" => DType::U64(Endianness::Big),
+            "u128be" => DType::U128(Endianness::Big),
             "char" => DType::Char,
             _ => panic!("Invalid dtype")
         }
-    };
+    }
+    .labelled("dtype");
     let count = select! {
         Token::Number(n) => Count::Number(n),
         Token::Identifier(id) => Count::Identifier(id)

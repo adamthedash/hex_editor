@@ -1,7 +1,7 @@
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, bail};
 use std::{collections::HashMap, iter::Peekable};
 
-use crate::parser::{Count, DType, Expr};
+use crate::parser::{Count, DType, Endianness, Expr};
 
 #[derive(Debug, Clone)]
 pub enum PrimativeArray {
@@ -30,33 +30,45 @@ impl PrimativeArray {
                     x[0]
                 })
                 .collect()),
-            DType::U16 => U16(chunks
+            DType::U16(e) => U16(chunks
                 .iter()
                 .map(|&x| {
                     assert_eq!(x.len(), 2);
-                    u16::from_le_bytes(x.try_into().unwrap())
+                    match e {
+                        Endianness::Big => u16::from_be_bytes(x.try_into().unwrap()),
+                        Endianness::Little => u16::from_le_bytes(x.try_into().unwrap()),
+                    }
                 })
                 .collect()),
-            DType::U32 => U32(chunks
+            DType::U32(e) => U32(chunks
                 .iter()
                 .map(|&x| {
                     assert_eq!(x.len(), 4);
-                    u32::from_le_bytes(x.try_into().unwrap())
+                    match e {
+                        Endianness::Big => u32::from_be_bytes(x.try_into().unwrap()),
+                        Endianness::Little => u32::from_le_bytes(x.try_into().unwrap()),
+                    }
                 })
                 .collect()),
-            DType::U64 => U64(chunks
+            DType::U64(e) => U64(chunks
                 .iter()
                 .map(|&x| {
                     assert_eq!(x.len(), 8);
-                    u64::from_le_bytes(x.try_into().unwrap())
+                    match e {
+                        Endianness::Big => u64::from_be_bytes(x.try_into().unwrap()),
+                        Endianness::Little => u64::from_le_bytes(x.try_into().unwrap()),
+                    }
                 })
                 .collect()),
-            DType::U128 => U128(
+            DType::U128(e) => U128(
                 chunks
                     .iter()
                     .map(|&x| {
                         assert_eq!(x.len(), 16);
-                        u128::from_le_bytes(x.try_into().unwrap())
+                        match e {
+                            Endianness::Big => u128::from_be_bytes(x.try_into().unwrap()),
+                            Endianness::Little => u128::from_le_bytes(x.try_into().unwrap()),
+                        }
                     })
                     .collect(),
             ),
@@ -99,7 +111,7 @@ pub fn process_bytes(
                             PrimativeArray::U16(items) => items[0] as usize,
                             PrimativeArray::U32(items) => items[0] as usize,
                             PrimativeArray::U64(items) => items[0] as usize,
-                            PrimativeArray::U128(items) => bail!("Cannot downcast u128 -> usize"),
+                            PrimativeArray::U128(_) => bail!("Cannot downcast u128 -> usize"),
                             _ => bail!("Cannot use dtype as count: {:?}", val),
                         }
                     }
@@ -107,10 +119,10 @@ pub fn process_bytes(
 
                 let bytes_per_data = match dtype {
                     DType::U8 => 1,
-                    DType::U16 => 2,
-                    DType::U32 => 4,
-                    DType::U64 => 8,
-                    DType::U128 => 16,
+                    DType::U16(_) => 2,
+                    DType::U32(_) => 4,
+                    DType::U64(_) => 8,
+                    DType::U128(_) => 16,
                     DType::Char => 1,
                 };
                 println!(
@@ -155,7 +167,7 @@ pub fn process_bytes(
                             PrimativeArray::U16(items) => items[0] as usize,
                             PrimativeArray::U32(items) => items[0] as usize,
                             PrimativeArray::U64(items) => items[0] as usize,
-                            PrimativeArray::U128(items) => bail!("Cannot downcast u128 -> usize"),
+                            PrimativeArray::U128(_) => bail!("Cannot downcast u128 -> usize"),
                             _ => bail!("Cannot use dtype as count: {:?}", val),
                         }
                     }

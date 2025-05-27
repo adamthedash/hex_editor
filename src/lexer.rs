@@ -24,6 +24,6 @@ pub enum Token {
     #[token("TAKE_N")]
     TakeN,
 
-    #[regex("(u(8|16|32|64|128)|char)", |x| x.slice().to_string())]
+    #[regex("(u8|u(16|32|64|128)(be|le)|char)", |x| x.slice().to_string())]
     DType(String),
 }
