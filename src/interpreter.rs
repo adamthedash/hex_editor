@@ -1,3 +1,4 @@
+use anyhow::{Context, Result, bail, ensure};
 use std::{collections::HashMap, iter::Peekable};
 
 use crate::parser::{Count, DType, Expr};
@@ -33,21 +34,21 @@ impl PrimativeArray {
                 .iter()
                 .map(|&x| {
                     assert_eq!(x.len(), 2);
-                    u16::from_be_bytes(x.try_into().unwrap())
+                    u16::from_le_bytes(x.try_into().unwrap())
                 })
                 .collect()),
             DType::U32 => U32(chunks
                 .iter()
                 .map(|&x| {
                     assert_eq!(x.len(), 4);
-                    u32::from_be_bytes(x.try_into().unwrap())
+                    u32::from_le_bytes(x.try_into().unwrap())
                 })
                 .collect()),
             DType::U64 => U64(chunks
                 .iter()
                 .map(|&x| {
                     assert_eq!(x.len(), 8);
-                    u64::from_be_bytes(x.try_into().unwrap())
+                    u64::from_le_bytes(x.try_into().unwrap())
                 })
                 .collect()),
             DType::U128 => U128(
@@ -55,7 +56,7 @@ impl PrimativeArray {
                     .iter()
                     .map(|&x| {
                         assert_eq!(x.len(), 16);
-                        u128::from_be_bytes(x.try_into().unwrap())
+                        u128::from_le_bytes(x.try_into().unwrap())
                     })
                     .collect(),
             ),
@@ -72,7 +73,10 @@ impl PrimativeArray {
     }
 }
 
-pub fn process_bytes(pattern: &[Expr], bytes: &mut Peekable<impl Iterator<Item = u8>>) -> Data {
+pub fn process_bytes(
+    pattern: &[Expr],
+    bytes: &mut Peekable<impl Iterator<Item = u8>>,
+) -> Result<Data> {
     let mut variables = HashMap::<String, PrimativeArray>::new();
 
     let mut parsed = vec![];
@@ -88,15 +92,15 @@ pub fn process_bytes(pattern: &[Expr], bytes: &mut Peekable<impl Iterator<Item =
                     Count::Identifier(id) => {
                         let val = variables
                             .get(id)
-                            .unwrap_or_else(|| panic!("Variable not found: {}", id));
+                            .with_context(|| format!("Variable not found: {:?}", id))?;
 
                         match val {
                             PrimativeArray::U8(items) => items[0] as usize,
                             PrimativeArray::U16(items) => items[0] as usize,
                             PrimativeArray::U32(items) => items[0] as usize,
                             PrimativeArray::U64(items) => items[0] as usize,
-                            PrimativeArray::U128(items) => panic!("Cannot downcast u128 -> usize"),
-                            _ => panic!("Cannot use dtype as count: {:?}", val),
+                            PrimativeArray::U128(items) => bail!("Cannot downcast u128 -> usize"),
+                            _ => bail!("Cannot use dtype as count: {:?}", val),
                         }
                     }
                 };
@@ -109,17 +113,18 @@ pub fn process_bytes(pattern: &[Expr], bytes: &mut Peekable<impl Iterator<Item =
                     DType::U128 => 16,
                     DType::Char => 1,
                 };
-                // println!(
-                //     "{:?}, {:?}, {}x{}",
-                //     p,
-                //     bytes.size_hint(),
-                //     count,
-                //     bytes_per_data
-                // );
+                println!(
+                    "{:?}, {:?}, {}x{}",
+                    p,
+                    bytes.size_hint(),
+                    count,
+                    bytes_per_data
+                );
 
                 let data = (0..count * bytes_per_data)
-                    .map(|_| bytes.next().expect("Ran out of bytes!"))
-                    .collect::<Vec<_>>();
+                    .map(|_| bytes.next().context("Ran out of bytes!"))
+                    .collect::<Result<Vec<_>>>()
+                    .with_context(|| format!("Failed to apply pattern: {:?}", p))?;
                 let data = data.chunks_exact(bytes_per_data).collect::<Vec<_>>();
                 let primative = PrimativeArray::from_chunked_array(&data, dtype);
 
@@ -132,7 +137,7 @@ pub fn process_bytes(pattern: &[Expr], bytes: &mut Peekable<impl Iterator<Item =
             Expr::TakeUntil(exprs) => {
                 let mut sub_parsed = vec![];
                 while bytes.peek().is_some() {
-                    sub_parsed.push(process_bytes(exprs, bytes));
+                    sub_parsed.push(process_bytes(exprs, bytes)?);
                 }
 
                 parsed.push(Data::List(sub_parsed));
@@ -143,22 +148,25 @@ pub fn process_bytes(pattern: &[Expr], bytes: &mut Peekable<impl Iterator<Item =
                     Count::Identifier(id) => {
                         let val = variables
                             .get(id)
-                            .unwrap_or_else(|| panic!("Variable not found: {}", id));
+                            .with_context(|| format!("Variable not found: {:?}", id))?;
 
                         match val {
                             PrimativeArray::U8(items) => items[0] as usize,
                             PrimativeArray::U16(items) => items[0] as usize,
                             PrimativeArray::U32(items) => items[0] as usize,
                             PrimativeArray::U64(items) => items[0] as usize,
-                            PrimativeArray::U128(items) => panic!("Cannot downcast u128 -> usize"),
-                            _ => panic!("Cannot use dtype as count: {:?}", val),
+                            PrimativeArray::U128(items) => bail!("Cannot downcast u128 -> usize"),
+                            _ => bail!("Cannot use dtype as count: {:?}", val),
                         }
                     }
                 };
 
                 let mut sub_parsed = vec![];
-                for _ in 0..count {
-                    sub_parsed.push(process_bytes(exprs, bytes));
+                for i in 0..count {
+                    sub_parsed.push(
+                        process_bytes(exprs, bytes)
+                            .with_context(|| format!("Failed to parse TAKE_N item #{}", i))?,
+                    );
                 }
 
                 parsed.push(Data::List(sub_parsed));
@@ -166,5 +174,5 @@ pub fn process_bytes(pattern: &[Expr], bytes: &mut Peekable<impl Iterator<Item =
         }
     }
 
-    Data::List(parsed)
+    Ok(Data::List(parsed))
 }

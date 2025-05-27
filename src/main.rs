@@ -1,9 +1,53 @@
+use std::fs;
+
+use chumsky::{IterParser, Parser as _};
+use clap::{Parser, command};
+use display::print_data;
+use interpreter::process_bytes;
+use logos::Logos;
+
 mod display;
 mod interpreter;
 mod lexer;
 mod parser;
 
-fn main() {}
+#[derive(Parser)]
+#[command(name = "pattern-parser")]
+#[command(about = "A pattern parser for binary files")]
+struct Args {
+    /// Path to the pattern file
+    pattern_file: String,
+
+    /// Path to the binary file to parse
+    binary_file: String,
+}
+
+fn main() {
+    let args = Args::parse();
+    let file = fs::read_to_string(&args.pattern_file).unwrap();
+
+    let tokens = lexer::Token::lexer(&file)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    println!("{:?}", tokens);
+
+    let parser = parser::expr_parser().repeated().collect::<Vec<_>>();
+
+    let pattern = parser
+        .parse(&tokens)
+        .into_result()
+        .expect("Failed to parse");
+    println!("{:#?}", pattern);
+
+    let png_bytes = fs::read(&args.binary_file).unwrap();
+
+    let mut png_iter = png_bytes.into_iter().peekable();
+
+    let parsed = process_bytes(&pattern, &mut png_iter).expect("Faild to apply pattern");
+    // println!("{:?}", parsed);
+
+    print_data(&parsed, &[]);
+}
 
 #[cfg(test)]
 mod tests {
@@ -34,7 +78,7 @@ mod tests {
 
         let mut png_iter = png_bytes.into_iter().peekable();
 
-        let parsed = process_bytes(&pattern, &mut png_iter);
+        let parsed = process_bytes(&pattern, &mut png_iter).expect("Faild to apply pattern");
         println!("{:?}", parsed);
 
         print_data(&parsed, &[]);
@@ -42,7 +86,7 @@ mod tests {
 
     #[test]
     fn test_poe_bundle_index() {
-        let file = fs::read_to_string("./data/patterns/poe_bundle_index.pattern").unwrap();
+        let file = fs::read_to_string("./data/patterns/poe_bundle.pattern").unwrap();
 
         let lex = lexer::Token::lexer(&file);
         let tokens = lex.collect::<Result<Vec<_>, _>>().unwrap();
@@ -53,16 +97,17 @@ mod tests {
         let pattern = parser
             .parse(&tokens)
             .into_result()
-            .expect("Failed to parse");
+            .expect("Failed to parse pattern");
         println!("{:#?}", pattern);
 
         let png_bytes = fs::read("/mnt/nvme_4tb/programming/data/poe/cache/patch-poe2.poecdn.com/4.2.0.13/Bundles2/_.index.bin").unwrap();
 
         let mut png_iter = png_bytes.into_iter().peekable();
 
-        let parsed = process_bytes(&pattern, &mut png_iter);
+        let parsed = process_bytes(&pattern, &mut png_iter).expect("Faild to apply pattern");
         println!("{:?}", parsed);
 
         print_data(&parsed, &[]);
+        panic!()
     }
 }
