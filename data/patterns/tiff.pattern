@@ -1,0 +1,12 @@
+u8 2 _ # II or MM endianness todo
+u16 1 _
+TAKE_N * {
+  POINTER NON_RETURNING u32le { } # Take until pointer == 0
+  u16 1 num_entries
+  TAKE_N num_entries {
+    u16 1 _
+    u16 1 _
+    u32 1 _
+    u32 1 _
+  }
+}
