@@ -41,6 +41,11 @@ pub enum Expr {
         count: Count,
         exprs: Vec<Expr>,
     },
+    TakeOver {
+        iter_identifier: String,
+        index_identifier: String,
+        exprs: Vec<Expr>,
+    },
 }
 
 pub fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'a, Token>>> {
@@ -65,14 +70,18 @@ pub fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'
         Token::Identifier(id) => Count::Identifier(id)
     };
 
-    let identifier = select! {
+    let maybe_identifier = select! {
         Token::Identifier(id) => Some(id),
         Token::Placeholder => None
     };
 
+    let identifier = select! {
+        Token::Identifier(id) => id,
+    };
+
     let primative = dtype
         .then(count)
-        .then(identifier)
+        .then(maybe_identifier)
         .map(|((dtype, count), identifier)| Expr::Primative {
             dtype,
             count,
@@ -91,12 +100,29 @@ pub fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'
         let take_n = just(Token::TakeN)
             .ignore_then(count)
             .then(
-                expr.repeated()
+                expr.clone()
+                    .repeated()
                     .collect()
                     .delimited_by(just(Token::LeftBrace), just(Token::RightBrace)),
             )
             .map(|(count, exprs)| Expr::TakeN { count, exprs });
 
-        primative.or(take_until).or(take_n)
+        let take_over = just(Token::TakeOver)
+            .ignore_then(identifier)
+            .then(identifier)
+            .then(
+                expr.repeated()
+                    .collect()
+                    .delimited_by(just(Token::LeftBrace), just(Token::RightBrace)),
+            )
+            .map(
+                |((iter_identifier, index_identifier), exprs)| Expr::TakeOver {
+                    iter_identifier,
+                    index_identifier,
+                    exprs,
+                },
+            );
+
+        primative.or(take_until).or(take_n).or(take_over)
     })
 }

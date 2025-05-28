@@ -38,14 +38,16 @@ pub fn print_data(data: &Data, stack_colors: &[(u8, u8, u8)]) {
                     .map(|x| format!("{} ", std::ascii::escape_default(*x)))
                     .collect::<Vec<_>>(),
             };
-            if string.len() > 128 {
-                for s in &string[..128] {
+            if string.len() > 32 {
+                for s in &string[..16] {
                     print!("{}", s);
                 }
                 print!("... ");
-                for s in &string[string.len() - 128..] {
+                for s in &string[string.len() - 16..] {
                     print!("{}", s);
                 }
+
+                print!("(len = {})", string.len());
             } else {
                 for s in string {
                     print!("{}", s);

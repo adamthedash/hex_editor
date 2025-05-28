@@ -1,12 +1,14 @@
-u32 1 _
-u32 1 _
-u32 1 _
-u32 1 _
+u32le 1 _
+u32le 1 _
+u32le 1 _
+u32le 1 _
 u8 4 _
-u64 1 _
-u64 1 total_data_size
-u32 1 blocks
-u32 1 _
+u64le 1 _
+u64le 1 total_data_size
+u32le 1 blocks
+u32le 1 _
 u8 16 _
-u32 blocks _
-u8 total_data_size _
+u32le blocks block_sizes
+TAKE_OVER block_sizes block_size {
+  u8 block_size _
+}

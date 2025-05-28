@@ -85,11 +85,48 @@ impl PrimativeArray {
     }
 }
 
+pub struct Stack {
+    variables: Vec<HashMap<String, PrimativeArray>>,
+}
+
+impl Stack {
+    pub fn new() -> Self {
+        Self { variables: vec![] }
+    }
+
+    /// Add a new layer to the stack
+    fn add_layer(&mut self) {
+        self.variables.push(HashMap::new());
+    }
+
+    /// Remove the last layer of the stack
+    fn remove_layer(&mut self) {
+        assert!(!self.variables.is_empty(), "Stack is empty!");
+        self.variables.pop();
+    }
+
+    /// Search up the stack for the given variable
+    fn get_var(&self, key: &String) -> Option<&PrimativeArray> {
+        self.variables.iter().rev().find_map(|vars| vars.get(key))
+    }
+
+    /// Set the variable value at the current layer of the stack
+    fn set_var(&mut self, key: String, val: PrimativeArray) {
+        self.variables
+            .iter_mut()
+            .last()
+            .expect("Stack is empty!")
+            .entry(key)
+            .insert_entry(val);
+    }
+}
+
 pub fn process_bytes(
     pattern: &[Expr],
     bytes: &mut Peekable<impl Iterator<Item = u8>>,
+    stack: &mut Stack,
 ) -> Result<Data> {
-    let mut variables = HashMap::<String, PrimativeArray>::new();
+    stack.add_layer();
 
     let mut parsed = vec![];
     for p in pattern {
@@ -102,8 +139,9 @@ pub fn process_bytes(
                 let count = match count {
                     Count::Number(n) => *n as usize,
                     Count::Identifier(id) => {
-                        let val = variables
-                            .get(id)
+                        // Search up the scope stack
+                        let val = stack
+                            .get_var(id)
                             .with_context(|| format!("Variable not found: {:?}", id))?;
 
                         match val {
@@ -141,7 +179,7 @@ pub fn process_bytes(
                 let primative = PrimativeArray::from_chunked_array(&data, dtype);
 
                 if let Some(id) = identifier {
-                    variables.entry(id.clone()).insert_entry(primative.clone());
+                    stack.set_var(id.clone(), primative.clone());
                 };
 
                 parsed.push(Data::Primative(primative));
@@ -149,7 +187,7 @@ pub fn process_bytes(
             Expr::TakeUntil(exprs) => {
                 let mut sub_parsed = vec![];
                 while bytes.peek().is_some() {
-                    sub_parsed.push(process_bytes(exprs, bytes)?);
+                    sub_parsed.push(process_bytes(exprs, bytes, stack)?);
                 }
 
                 parsed.push(Data::List(sub_parsed));
@@ -158,8 +196,9 @@ pub fn process_bytes(
                 let count = match count {
                     Count::Number(n) => *n as usize,
                     Count::Identifier(id) => {
-                        let val = variables
-                            .get(id)
+                        // Search up the scope stack
+                        let val = stack
+                            .get_var(id)
                             .with_context(|| format!("Variable not found: {:?}", id))?;
 
                         match val {
@@ -173,13 +212,59 @@ pub fn process_bytes(
                     }
                 };
 
-                let mut sub_parsed = vec![];
-                for i in 0..count {
-                    sub_parsed.push(
-                        process_bytes(exprs, bytes)
-                            .with_context(|| format!("Failed to parse TAKE_N item #{}", i))?,
-                    );
-                }
+                let sub_parsed = (0..count)
+                    .map(|i| {
+                        process_bytes(exprs, bytes, stack)
+                            .with_context(|| format!("Failed to parse TAKE_N item #{}", i))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+
+                parsed.push(Data::List(sub_parsed));
+            }
+            Expr::TakeOver {
+                iter_identifier,
+                index_identifier,
+                exprs,
+            } => {
+                // Search up the scope stack
+                let iter = stack
+                    .get_var(iter_identifier)
+                    .with_context(|| format!("Variable not found: {:?}", iter_identifier))?;
+
+                let items = match iter {
+                    PrimativeArray::U8(items) => {
+                        items.iter().map(|x| *x as usize).collect::<Vec<_>>()
+                    }
+                    PrimativeArray::U16(items) => {
+                        items.iter().map(|x| *x as usize).collect::<Vec<_>>()
+                    }
+                    PrimativeArray::U32(items) => {
+                        items.iter().map(|x| *x as usize).collect::<Vec<_>>()
+                    }
+                    PrimativeArray::U64(items) => {
+                        items.iter().map(|x| *x as usize).collect::<Vec<_>>()
+                    }
+                    PrimativeArray::U128(_) => bail!("Cannot downcast u128 -> usize"),
+                    _ => bail!("Cannot use dtype as count: {:?}", iter),
+                };
+
+                // Add a new temp stack layer to store our loop variable
+                stack.add_layer();
+
+                let sub_parsed = items
+                    .into_iter()
+                    .map(|i| {
+                        stack.set_var(
+                            index_identifier.clone(),
+                            PrimativeArray::U64(vec![i as u64]),
+                        );
+
+                        process_bytes(exprs, bytes, stack)
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+
+                // Remove the temp stack layer
+                stack.remove_layer();
 
                 parsed.push(Data::List(sub_parsed));
             }

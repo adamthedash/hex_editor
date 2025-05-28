@@ -3,7 +3,7 @@ use std::fs;
 use chumsky::{IterParser, Parser as _};
 use clap::{Parser, command};
 use display::print_data;
-use interpreter::process_bytes;
+use interpreter::{Stack, process_bytes};
 use logos::Logos;
 
 mod display;
@@ -29,22 +29,22 @@ fn main() {
     let tokens = lexer::Token::lexer(&file)
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
-    println!("{:?}", tokens);
 
     let parser = parser::expr_parser().repeated().collect::<Vec<_>>();
 
     let pattern = parser
         .parse(&tokens)
         .into_result()
-        .expect("Failed to parse");
+        .expect("Failed to parse pattern file.");
     println!("{:#?}", pattern);
 
     let png_bytes = fs::read(&args.binary_file).unwrap();
 
     let mut png_iter = png_bytes.into_iter().peekable();
 
-    let parsed = process_bytes(&pattern, &mut png_iter).expect("Faild to apply pattern");
-    // println!("{:?}", parsed);
+    let mut stack = Stack::new();
+    let parsed =
+        process_bytes(&pattern, &mut png_iter, &mut stack).expect("Faild to apply pattern");
 
     print_data(&parsed, &[]);
 }
@@ -56,7 +56,11 @@ mod tests {
     use chumsky::{IterParser, Parser};
     use logos::Logos;
 
-    use crate::{display::print_data, interpreter::process_bytes, lexer, parser};
+    use crate::{
+        display::print_data,
+        interpreter::{Stack, process_bytes},
+        lexer, parser,
+    };
 
     #[test]
     fn test_png() {
@@ -78,7 +82,9 @@ mod tests {
 
         let mut png_iter = png_bytes.into_iter().peekable();
 
-        let parsed = process_bytes(&pattern, &mut png_iter).expect("Faild to apply pattern");
+        let mut stack = Stack::new();
+        let parsed =
+            process_bytes(&pattern, &mut png_iter, &mut stack).expect("Faild to apply pattern");
         println!("{:?}", parsed);
 
         print_data(&parsed, &[]);
