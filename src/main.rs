@@ -110,7 +110,9 @@ mod tests {
 
         let mut png_iter = png_bytes.into_iter().peekable();
 
-        let parsed = process_bytes(&pattern, &mut png_iter).expect("Faild to apply pattern");
+        let mut stack = Stack::new();
+        let parsed =
+            process_bytes(&pattern, &mut png_iter, &mut stack).expect("Faild to apply pattern");
         println!("{:?}", parsed);
 
         print_data(&parsed, &[]);

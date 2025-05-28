@@ -85,11 +85,11 @@ impl PrimativeArray {
     }
 }
 
-pub struct Stack {
-    variables: Vec<HashMap<String, PrimativeArray>>,
+pub struct Stack<'a> {
+    variables: Vec<HashMap<&'a str, PrimativeArray>>,
 }
 
-impl Stack {
+impl<'a> Stack<'a> {
     pub fn new() -> Self {
         Self { variables: vec![] }
     }
@@ -106,12 +106,12 @@ impl Stack {
     }
 
     /// Search up the stack for the given variable
-    fn get_var(&self, key: &String) -> Option<&PrimativeArray> {
+    fn get_var(&self, key: &str) -> Option<&PrimativeArray> {
         self.variables.iter().rev().find_map(|vars| vars.get(key))
     }
 
     /// Set the variable value at the current layer of the stack
-    fn set_var(&mut self, key: String, val: PrimativeArray) {
+    fn set_var(&mut self, key: &'a str, val: PrimativeArray) {
         self.variables
             .iter_mut()
             .last()
@@ -121,10 +121,135 @@ impl Stack {
     }
 }
 
-pub fn process_bytes(
-    pattern: &[Expr],
+/// Attempt to parse a primative from the byte stream
+fn process_primative<'a>(
+    stack: &mut Stack<'a>,
+    bytes: &mut impl Iterator<Item = u8>,
+    dtype: &DType,
+    count: &Count,
+    identifier: &'a Option<String>,
+) -> Result<Data> {
+    let count = match count {
+        Count::Number(n) => *n as usize,
+        Count::Identifier(id) => {
+            // Search up the scope stack
+            let val = stack
+                .get_var(id)
+                .with_context(|| format!("Variable not found: {:?}", id))?;
+
+            match val {
+                PrimativeArray::U8(items) => items[0] as usize,
+                PrimativeArray::U16(items) => items[0] as usize,
+                PrimativeArray::U32(items) => items[0] as usize,
+                PrimativeArray::U64(items) => items[0] as usize,
+                PrimativeArray::U128(_) => bail!("Cannot downcast u128 -> usize"),
+                _ => bail!("Cannot use dtype as count: {:?}", val),
+            }
+        }
+    };
+
+    let bytes_per_data = match dtype {
+        DType::U8 => 1,
+        DType::U16(_) => 2,
+        DType::U32(_) => 4,
+        DType::U64(_) => 8,
+        DType::U128(_) => 16,
+        DType::Char => 1,
+    };
+
+    let data = (0..count * bytes_per_data)
+        .map(|_| bytes.next().context("Ran out of bytes!"))
+        .collect::<Result<Vec<_>>>()?;
+    let data = data.chunks_exact(bytes_per_data).collect::<Vec<_>>();
+    let primative = PrimativeArray::from_chunked_array(&data, dtype);
+
+    if let Some(id) = identifier {
+        stack.set_var(id, primative.clone());
+    };
+
+    Ok(Data::Primative(primative))
+}
+
+/// Take a pattern N times in a row
+fn process_take_n<'a>(
+    stack: &mut Stack<'a>,
     bytes: &mut Peekable<impl Iterator<Item = u8>>,
-    stack: &mut Stack,
+    count: &Count,
+    exprs: &'a [Expr],
+) -> Result<Data> {
+    let count = match count {
+        Count::Number(n) => *n as usize,
+        Count::Identifier(id) => {
+            // Search up the scope stack
+            let val = stack
+                .get_var(id)
+                .with_context(|| format!("Variable not found: {:?}", id))?;
+
+            match val {
+                PrimativeArray::U8(items) => items[0] as usize,
+                PrimativeArray::U16(items) => items[0] as usize,
+                PrimativeArray::U32(items) => items[0] as usize,
+                PrimativeArray::U64(items) => items[0] as usize,
+                PrimativeArray::U128(_) => bail!("Cannot downcast u128 -> usize"),
+                _ => bail!("Cannot use dtype as count: {:?}", val),
+            }
+        }
+    };
+
+    let sub_parsed = (0..count)
+        .map(|i| {
+            process_bytes(exprs, bytes, stack)
+                .with_context(|| format!("Failed to parse TAKE_N item #{}", i))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    Ok(Data::List(sub_parsed))
+}
+
+/// Take a repeated pattern over the given iterator
+fn process_take_over<'a>(
+    stack: &mut Stack<'a>,
+    bytes: &mut Peekable<impl Iterator<Item = u8>>,
+    iter_identifier: &str,
+    index_identifier: &'a str,
+    exprs: &'a [Expr],
+) -> Result<Data> {
+    // Search up the scope stack
+    let iter = stack
+        .get_var(iter_identifier)
+        .with_context(|| format!("Variable not found: {:?}", iter_identifier))?;
+
+    let items = match iter {
+        PrimativeArray::U8(items) => items.iter().map(|x| *x as usize).collect::<Vec<_>>(),
+        PrimativeArray::U16(items) => items.iter().map(|x| *x as usize).collect::<Vec<_>>(),
+        PrimativeArray::U32(items) => items.iter().map(|x| *x as usize).collect::<Vec<_>>(),
+        PrimativeArray::U64(items) => items.iter().map(|x| *x as usize).collect::<Vec<_>>(),
+        PrimativeArray::U128(_) => bail!("Cannot downcast u128 -> usize"),
+        _ => bail!("Cannot use dtype as count: {:?}", iter),
+    };
+
+    // Add a new temp stack layer to store our loop variable
+    stack.add_layer();
+
+    let sub_parsed = items
+        .into_iter()
+        .map(|i| {
+            stack.set_var(index_identifier, PrimativeArray::U64(vec![i as u64]));
+
+            process_bytes(exprs, bytes, stack)
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    // Remove the temp stack layer
+    stack.remove_layer();
+
+    Ok(Data::List(sub_parsed))
+}
+
+pub fn process_bytes<'a>(
+    pattern: &'a [Expr],
+    bytes: &mut Peekable<impl Iterator<Item = u8>>,
+    stack: &mut Stack<'a>,
 ) -> Result<Data> {
     stack.add_layer();
 
@@ -135,55 +260,10 @@ pub fn process_bytes(
                 dtype,
                 count,
                 identifier,
-            } => {
-                let count = match count {
-                    Count::Number(n) => *n as usize,
-                    Count::Identifier(id) => {
-                        // Search up the scope stack
-                        let val = stack
-                            .get_var(id)
-                            .with_context(|| format!("Variable not found: {:?}", id))?;
-
-                        match val {
-                            PrimativeArray::U8(items) => items[0] as usize,
-                            PrimativeArray::U16(items) => items[0] as usize,
-                            PrimativeArray::U32(items) => items[0] as usize,
-                            PrimativeArray::U64(items) => items[0] as usize,
-                            PrimativeArray::U128(_) => bail!("Cannot downcast u128 -> usize"),
-                            _ => bail!("Cannot use dtype as count: {:?}", val),
-                        }
-                    }
-                };
-
-                let bytes_per_data = match dtype {
-                    DType::U8 => 1,
-                    DType::U16(_) => 2,
-                    DType::U32(_) => 4,
-                    DType::U64(_) => 8,
-                    DType::U128(_) => 16,
-                    DType::Char => 1,
-                };
-                println!(
-                    "{:?}, {:?}, {}x{}",
-                    p,
-                    bytes.size_hint(),
-                    count,
-                    bytes_per_data
-                );
-
-                let data = (0..count * bytes_per_data)
-                    .map(|_| bytes.next().context("Ran out of bytes!"))
-                    .collect::<Result<Vec<_>>>()
-                    .with_context(|| format!("Failed to apply pattern: {:?}", p))?;
-                let data = data.chunks_exact(bytes_per_data).collect::<Vec<_>>();
-                let primative = PrimativeArray::from_chunked_array(&data, dtype);
-
-                if let Some(id) = identifier {
-                    stack.set_var(id.clone(), primative.clone());
-                };
-
-                parsed.push(Data::Primative(primative));
-            }
+            } => parsed.push(
+                process_primative(stack, bytes, dtype, count, identifier)
+                    .with_context(|| format!("Failed to apply pattern: {:?}", p))?,
+            ),
             Expr::TakeUntil(exprs) => {
                 let mut sub_parsed = vec![];
                 while bytes.peek().is_some() {
@@ -193,80 +273,20 @@ pub fn process_bytes(
                 parsed.push(Data::List(sub_parsed));
             }
             Expr::TakeN { count, exprs } => {
-                let count = match count {
-                    Count::Number(n) => *n as usize,
-                    Count::Identifier(id) => {
-                        // Search up the scope stack
-                        let val = stack
-                            .get_var(id)
-                            .with_context(|| format!("Variable not found: {:?}", id))?;
-
-                        match val {
-                            PrimativeArray::U8(items) => items[0] as usize,
-                            PrimativeArray::U16(items) => items[0] as usize,
-                            PrimativeArray::U32(items) => items[0] as usize,
-                            PrimativeArray::U64(items) => items[0] as usize,
-                            PrimativeArray::U128(_) => bail!("Cannot downcast u128 -> usize"),
-                            _ => bail!("Cannot use dtype as count: {:?}", val),
-                        }
-                    }
-                };
-
-                let sub_parsed = (0..count)
-                    .map(|i| {
-                        process_bytes(exprs, bytes, stack)
-                            .with_context(|| format!("Failed to parse TAKE_N item #{}", i))
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-
-                parsed.push(Data::List(sub_parsed));
+                parsed.push(
+                    process_take_n(stack, bytes, count, exprs)
+                        .with_context(|| format!("Failed to apply pattern: {:?}", p))?,
+                );
             }
             Expr::TakeOver {
                 iter_identifier,
                 index_identifier,
                 exprs,
             } => {
-                // Search up the scope stack
-                let iter = stack
-                    .get_var(iter_identifier)
-                    .with_context(|| format!("Variable not found: {:?}", iter_identifier))?;
-
-                let items = match iter {
-                    PrimativeArray::U8(items) => {
-                        items.iter().map(|x| *x as usize).collect::<Vec<_>>()
-                    }
-                    PrimativeArray::U16(items) => {
-                        items.iter().map(|x| *x as usize).collect::<Vec<_>>()
-                    }
-                    PrimativeArray::U32(items) => {
-                        items.iter().map(|x| *x as usize).collect::<Vec<_>>()
-                    }
-                    PrimativeArray::U64(items) => {
-                        items.iter().map(|x| *x as usize).collect::<Vec<_>>()
-                    }
-                    PrimativeArray::U128(_) => bail!("Cannot downcast u128 -> usize"),
-                    _ => bail!("Cannot use dtype as count: {:?}", iter),
-                };
-
-                // Add a new temp stack layer to store our loop variable
-                stack.add_layer();
-
-                let sub_parsed = items
-                    .into_iter()
-                    .map(|i| {
-                        stack.set_var(
-                            index_identifier.clone(),
-                            PrimativeArray::U64(vec![i as u64]),
-                        );
-
-                        process_bytes(exprs, bytes, stack)
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-
-                // Remove the temp stack layer
-                stack.remove_layer();
-
-                parsed.push(Data::List(sub_parsed));
+                parsed.push(
+                    process_take_over(stack, bytes, iter_identifier, index_identifier, exprs)
+                        .with_context(|| format!("Failed to apply pattern: {:?}", p))?,
+                );
             }
         }
     }
