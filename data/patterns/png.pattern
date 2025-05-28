@@ -1,5 +1,5 @@
 char 8 _
-TAKE_UNTIL {
+TAKE_N * {
   u32be 1 n
   char 4 _
   u8 n _

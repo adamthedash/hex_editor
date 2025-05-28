@@ -28,7 +28,7 @@ fn main() {
 
     let tokens = lexer::Token::lexer(&file)
         .collect::<Result<Vec<_>, _>>()
-        .unwrap();
+        .expect("Failed to parse tokens.");
 
     let parser = parser::expr_parser().repeated().collect::<Vec<_>>();
 

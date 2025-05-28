@@ -12,6 +12,9 @@ pub enum Token {
     #[regex(r"\d+", |x| x.slice().parse::<u64>().expect("Failed to parse number"))]
     Number(u64),
 
+    #[token("*")]
+    Wildcard,
+
     #[regex(r"[a-zA-Z]\w*", |x| x.slice().to_string())]
     Identifier(String),
 

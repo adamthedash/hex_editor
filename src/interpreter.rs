@@ -130,22 +130,25 @@ fn process_primative<'a>(
     identifier: &'a Option<String>,
 ) -> Result<Data> {
     let count = match count {
-        Count::Number(n) => *n as usize,
+        Count::Number(n) => Some(*n as usize),
         Count::Identifier(id) => {
             // Search up the scope stack
             let val = stack
                 .get_var(id)
                 .with_context(|| format!("Variable not found: {:?}", id))?;
 
-            match val {
+            let val = match val {
                 PrimativeArray::U8(items) => items[0] as usize,
                 PrimativeArray::U16(items) => items[0] as usize,
                 PrimativeArray::U32(items) => items[0] as usize,
                 PrimativeArray::U64(items) => items[0] as usize,
                 PrimativeArray::U128(_) => bail!("Cannot downcast u128 -> usize"),
                 _ => bail!("Cannot use dtype as count: {:?}", val),
-            }
+            };
+
+            Some(val)
         }
+        Count::Infinite => None,
     };
 
     let bytes_per_data = match dtype {
@@ -157,9 +160,15 @@ fn process_primative<'a>(
         DType::Char => 1,
     };
 
-    let data = (0..count * bytes_per_data)
-        .map(|_| bytes.next().context("Ran out of bytes!"))
-        .collect::<Result<Vec<_>>>()?;
+    let data = if let Some(count) = count {
+        // Bounded N
+        (0..count * bytes_per_data)
+            .map(|_| bytes.next().context("Ran out of bytes!"))
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        // Unbounded N
+        bytes.collect()
+    };
     let data = data.chunks_exact(bytes_per_data).collect::<Vec<_>>();
     let primative = PrimativeArray::from_chunked_array(&data, dtype);
 
@@ -178,30 +187,43 @@ fn process_take_n<'a>(
     exprs: &'a [Expr],
 ) -> Result<Data> {
     let count = match count {
-        Count::Number(n) => *n as usize,
+        Count::Number(n) => Some(*n as usize),
         Count::Identifier(id) => {
             // Search up the scope stack
             let val = stack
                 .get_var(id)
                 .with_context(|| format!("Variable not found: {:?}", id))?;
 
-            match val {
+            let val = match val {
                 PrimativeArray::U8(items) => items[0] as usize,
                 PrimativeArray::U16(items) => items[0] as usize,
                 PrimativeArray::U32(items) => items[0] as usize,
                 PrimativeArray::U64(items) => items[0] as usize,
                 PrimativeArray::U128(_) => bail!("Cannot downcast u128 -> usize"),
                 _ => bail!("Cannot use dtype as count: {:?}", val),
-            }
+            };
+
+            Some(val)
         }
+        Count::Infinite => None,
     };
 
-    let sub_parsed = (0..count)
-        .map(|i| {
-            process_bytes(exprs, bytes, stack)
-                .with_context(|| format!("Failed to parse TAKE_N item #{}", i))
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let sub_parsed = if let Some(count) = count {
+        // Bounded N
+        (0..count)
+            .map(|i| {
+                process_bytes(exprs, bytes, stack)
+                    .with_context(|| format!("Failed to parse TAKE_N item #{}", i))
+            })
+            .collect::<Result<Vec<_>>>()?
+    } else {
+        // Unbounded N
+        let mut sub_parsed = vec![];
+        while bytes.peek().is_some() {
+            sub_parsed.push(process_bytes(exprs, bytes, stack)?);
+        }
+        sub_parsed
+    };
 
     Ok(Data::List(sub_parsed))
 }
@@ -264,14 +286,6 @@ pub fn process_bytes<'a>(
                 process_primative(stack, bytes, dtype, count, identifier)
                     .with_context(|| format!("Failed to apply pattern: {:?}", p))?,
             ),
-            Expr::TakeUntil(exprs) => {
-                let mut sub_parsed = vec![];
-                while bytes.peek().is_some() {
-                    sub_parsed.push(process_bytes(exprs, bytes, stack)?);
-                }
-
-                parsed.push(Data::List(sub_parsed));
-            }
             Expr::TakeN { count, exprs } => {
                 parsed.push(
                     process_take_n(stack, bytes, count, exprs)

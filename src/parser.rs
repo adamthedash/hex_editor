@@ -27,6 +27,7 @@ pub enum DType {
 pub enum Count {
     Number(u64),
     Identifier(String),
+    Infinite,
 }
 
 #[derive(Debug, Clone)]
@@ -36,7 +37,6 @@ pub enum Expr {
         count: Count,
         identifier: Option<String>,
     },
-    TakeUntil(Vec<Expr>),
     TakeN {
         count: Count,
         exprs: Vec<Expr>,
@@ -67,7 +67,9 @@ pub fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'
     .labelled("dtype");
     let count = select! {
         Token::Number(n) => Count::Number(n),
-        Token::Identifier(id) => Count::Identifier(id)
+        Token::Identifier(id) => Count::Identifier(id),
+        Token::Wildcard => Count::Infinite,
+            
     };
 
     let maybe_identifier = select! {
@@ -89,14 +91,6 @@ pub fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'
         });
 
     recursive(|expr| {
-        let take_until = just(Token::TakeUntil).ignore_then(
-            expr.clone()
-                .repeated()
-                .collect()
-                .delimited_by(just(Token::LeftBrace), just(Token::RightBrace))
-                .map(Expr::TakeUntil),
-        );
-
         let take_n = just(Token::TakeN)
             .ignore_then(count)
             .then(
@@ -123,6 +117,6 @@ pub fn expr_parser<'a>() -> impl Parser<'a, &'a [Token], Expr, extra::Err<Rich<'
                 },
             );
 
-        primative.or(take_until).or(take_n).or(take_over)
+        primative.or(take_n).or(take_over)
     })
 }
