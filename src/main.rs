@@ -2,7 +2,7 @@ use std::fs;
 
 use chumsky::{IterParser, Parser as _};
 use clap::{Parser, command};
-use display::print_data;
+use display::{HexWriter, print_horizontal, print_vertical};
 use interpreter::{Stack, process_bytes};
 use logos::Logos;
 
@@ -46,7 +46,9 @@ fn main() {
     let parsed =
         process_bytes(&pattern, &mut png_iter, &mut stack).expect("Faild to apply pattern");
 
-    print_data(&parsed, &[]);
+    //print_vertical(&parsed, &[]);
+    let mut writer = HexWriter::new(130);
+    print_horizontal(&parsed, &mut writer, &[]);
 }
 
 #[cfg(test)]
@@ -57,7 +59,7 @@ mod tests {
     use logos::Logos;
 
     use crate::{
-        display::print_data,
+        display::print_vertical,
         interpreter::{Stack, process_bytes},
         lexer, parser,
     };
@@ -87,7 +89,7 @@ mod tests {
             process_bytes(&pattern, &mut png_iter, &mut stack).expect("Faild to apply pattern");
         println!("{:?}", parsed);
 
-        print_data(&parsed, &[]);
+        print_vertical(&parsed, &[]);
     }
 
     #[test]
@@ -115,7 +117,7 @@ mod tests {
             process_bytes(&pattern, &mut png_iter, &mut stack).expect("Faild to apply pattern");
         println!("{:?}", parsed);
 
-        print_data(&parsed, &[]);
+        print_vertical(&parsed, &[]);
         panic!()
     }
 }
